@@ -6,6 +6,7 @@ from .models import SyncLog, SyncMapping
 import os
 from dotenv import load_dotenv
 import logging
+import requests
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -37,6 +38,42 @@ def sync_products_wc_to_odoo(self):
     db = SessionLocal()
     
     try:
+        # --- CATEGORY HIERARCHY PROCESSING ---
+        logger.info("Fetching all WooCommerce categories")
+        wc_all_categories = wc.get_categories(params={'per_page': 100}) # Fetch all categories
+        wc_categories_by_id = {cat['id']: cat for cat in wc_all_categories}
+
+        # Dictionary to store the mapping from WC category ID to Odoo category ID
+        wc_cat_to_odoo_cat_id_map = {}
+
+        def get_or_create_odoo_category_recursive(wc_cat_id):
+            if wc_cat_id == 0:  # Top-level category in WooCommerce has parent 0
+                return None
+
+            # If already processed, return the Odoo ID
+            if wc_cat_id in wc_cat_to_odoo_cat_id_map:
+                return wc_cat_to_odoo_cat_id_map[wc_cat_id]
+
+            wc_category = wc_categories_by_id.get(wc_cat_id)
+            if not wc_category:
+                logger.warning(f"WooCommerce category with ID {wc_cat_id} not found during recursive processing.")
+                return None
+
+            odoo_parent_id = None
+            if wc_category['parent'] != 0:
+                odoo_parent_id = get_or_create_odoo_category_recursive(wc_category['parent'])
+
+            # Create or get the current category in Odoo
+            odoo_cat_id = odoo.get_or_create_category(wc_category['name'], odoo_parent_id)
+            wc_cat_to_odoo_cat_id_map[wc_cat_id] = odoo_cat_id
+            return odoo_cat_id
+
+        # Process all WooCommerce categories to build the Odoo category hierarchy
+        for wc_cat_id in wc_categories_by_id.keys():
+            get_or_create_odoo_category_recursive(wc_cat_id)
+
+        # --- END CATEGORY HIERARCHY PROCESSING ---
+
         # Get all products from WooCommerce
         logger.info("Fetching products from WooCommerce")
         wc_products = wc.get_products()
@@ -55,9 +92,42 @@ def sync_products_wc_to_odoo(self):
                 wc_id = str(product['id'])
                 processed_wc_ids.add(wc_id)
                 
+                # --- CATEGORY HANDLING ---
+                odoo_product_category_id = None  # Changed to singular variable
+                if product.get('categories') and product['categories']:
+                    # Use the first category for categ_id (Many2one field in Odoo product.product)
+                    wc_first_category = product['categories'][0]
+                    wc_cat_id = wc_first_category['id']
+                    if wc_cat_id in wc_cat_to_odoo_cat_id_map:
+                        odoo_product_category_id = wc_cat_to_odoo_cat_id_map[wc_cat_id]
+                    else:
+                        logger.warning(f"WooCommerce product category {wc_first_category['name']} (ID: {wc_cat_id}) not found in the processed categories map. This might indicate an issue with fetching all categories.")
+
+                # --- DESCRIPTION HANDLING ---
+                description = product.get('description', '')
+
+                # --- IMAGE HANDLING ---
+                image_base64 = None
+                if product.get('images') and len(product['images']) > 0:
+                    image_url = product['images'][0]['src']
+                    image_base64 = odoo.get_image_base64_from_url(image_url)
+
                 # Check if product is already mapped
                 mapping = wc_id_to_mapping.get(wc_id)
                 
+                product_vals = {
+                    'name': product['name'],
+                    'list_price': float(product['price']),
+                    'default_code': product['sku'],
+                    'active': True,
+                    'description': description
+                }
+                if odoo_product_category_id:
+                    # Assign the single Odoo category ID directly for Many2one field
+                    product_vals['categ_id'] = odoo_product_category_id
+                if image_base64:
+                    product_vals['image_1920'] = image_base64
+
                 if mapping:
                     # Verify if product still exists in Odoo
                     odoo_product = odoo.search_read(
@@ -69,33 +139,17 @@ def sync_products_wc_to_odoo(self):
                     if not odoo_product:
                         # Product was deleted in Odoo, create it again
                         logger.info(f"Product {product['name']} was deleted in Odoo, recreating")
-                        odoo_id = odoo.create('product.product', {
-                            'name': product['name'],
-                            'list_price': float(product['price']),
-                            'default_code': product['sku'],
-                            'active': True
-                        })
+                        odoo_id = odoo.create('product.product', product_vals)
                         mapping.odoo_id = str(odoo_id)
                         db.add(mapping)
                     else:
                         # Update existing product in Odoo
                         logger.info(f"Updating existing product in Odoo: {product['name']}")
-                        update_data = {
-                            'name': product['name'],
-                            'list_price': float(product['price']),
-                            'default_code': product['sku'],
-                            'active': True  # Ensure product is unarchived
-                        }
-                        odoo.write('product.product', int(mapping.odoo_id), update_data)
+                        odoo.write('product.product', int(mapping.odoo_id), product_vals)
                 else:
                     # Create new product in Odoo
                     logger.info(f"Creating new product in Odoo: {product['name']}")
-                    odoo_id = odoo.create('product.product', {
-                        'name': product['name'],
-                        'list_price': float(product['price']),
-                        'default_code': product['sku'],
-                        'active': True
-                    })
+                    odoo_id = odoo.create('product.product', product_vals)
                     
                     # Create mapping
                     mapping = SyncMapping(
