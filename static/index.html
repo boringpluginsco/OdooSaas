@@ -142,6 +142,11 @@
                     <i class="fas fa-file-invoice mr-2"></i>Invoices
                 </h2>
                 <p class="text-gray-600">Sync invoice data between WooCommerce and Odoo.</p>
+                <button id="manualExportInvoicesButton" onclick="showManualInvoiceExport(event)"
+                        class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition-colors mt-4">
+                    <i class="fas fa-file-export mr-2"></i>Manual Export Invoices
+                </button>
+                <div id="manualInvoiceExportTable" class="mt-6 hidden"></div>
             </section>
 
             <!-- Sync History Section -->
@@ -531,6 +536,208 @@
             document.getElementById('overwriteModal').classList.add('hidden');
             overwriteCustomerId = null;
             overwriteStatusSpan = null;
+        };
+
+        function showManualInvoiceExport(event) {
+            event.preventDefault();
+            const tableDiv = document.getElementById('manualInvoiceExportTable');
+            if (tableDiv.classList.contains('hidden')) {
+                loadManualInvoiceExportTable();
+                tableDiv.classList.remove('hidden');
+            } else {
+                tableDiv.classList.add('hidden');
+            }
+        }
+        async function loadManualInvoiceExportTable() {
+            const tableDiv = document.getElementById('manualInvoiceExportTable');
+            tableDiv.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-2xl text-blue-500"></i> Loading invoices...</div>';
+            try {
+                const response = await fetch('/woo/orders');
+                const orders = await response.json();
+                if (!Array.isArray(orders) || orders.length === 0) {
+                    tableDiv.innerHTML = '<div class="text-center text-gray-500">No invoices/orders found in WooCommerce.</div>';
+                    return;
+                }
+                function statusBadge(status) {
+                    switch ((status || '').toLowerCase()) {
+                        case 'pending':
+                            return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-800"><i class="fas fa-clock mr-1"></i>Pending</span>';
+                        case 'on-hold':
+                            return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800"><i class="fas fa-pause-circle mr-1"></i>On-Hold</span>';
+                        case 'processing':
+                            return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800"><i class="fas fa-cogs mr-1"></i>Processing</span>';
+                        case 'completed':
+                            return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"><i class="fas fa-check-circle mr-1"></i>Completed</span>';
+                        case 'refunded':
+                            return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800"><i class="fas fa-undo mr-1"></i>Refunded</span>';
+                        case 'failed':
+                            return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800"><i class="fas fa-times-circle mr-1"></i>Failed</span>';
+                        case 'cancelled':
+                            return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-800"><i class="fas fa-ban mr-1"></i>Cancelled</span>';
+                        default:
+                            return `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">${status}</span>`;
+                    }
+                }
+                tableDiv.innerHTML = `
+                    <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 text-sm bg-white rounded shadow">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Order ID</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Date</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Customer</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Email</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Products</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Total</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Status</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Sync</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${orders.map(o => `
+                                <tr id="order-row-${o.id}">
+                                    <td class="px-3 py-2">${o.id}</td>
+                                    <td class="px-3 py-2">${o.date_created ? new Date(o.date_created).toLocaleDateString() : ''}</td>
+                                    <td class="px-3 py-2">${o.billing && (o.billing.first_name || o.billing.last_name) ? `${o.billing.first_name || ''} ${o.billing.last_name || ''}` : ''}</td>
+                                    <td class="px-3 py-2">${o.billing && o.billing.email ? o.billing.email : ''}</td>
+                                    <td class="px-3 py-2">${Array.isArray(o.line_items) && o.line_items.length > 0 ? o.line_items.map(li => `${li.name} (x${li.quantity})`).join(', ') : ''}</td>
+                                    <td class="px-3 py-2">${o.total || ''}</td>
+                                    <td class="px-3 py-2">${statusBadge(o.status)}</td>
+                                    <td class="px-3 py-2 text-center">
+                                        ${o.is_synced ? 
+                                            `<span class="text-green-600"><i class="fas fa-check-circle"></i> Synced as ${o.odoo_reference}</span>
+                                            <button class="synced-options-btn bg-gray-200 hover:bg-gray-300 text-gray-800 rounded px-2 py-1 ml-2" data-id="${o.id}" data-odoo-ref="${o.odoo_reference}" title="More actions">
+                                                <i class="fas fa-chevron-down"></i>
+                                            </button>
+                                            <span class="ml-2 text-xs" id="sync-invoice-status-${o.id}"></span>`
+                                            :
+                                            `<button class="sync-invoice-btn bg-blue-500 hover:bg-blue-600 text-white rounded px-2 py-1" data-id="${o.id}" title="Sync to Odoo">
+                                                <i class="fas fa-arrow-right"></i>
+                                            </button>
+                                            <span class="ml-2 text-xs" id="sync-invoice-status-${o.id}"></span>`
+                                        }
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    </div>
+                `;
+                // Add event listeners for sync buttons
+                tableDiv.querySelectorAll('.sync-invoice-btn').forEach(btn => {
+                    btn.addEventListener('click', async function() {
+                        const orderId = this.getAttribute('data-id');
+                        const statusSpan = document.getElementById('sync-invoice-status-' + orderId);
+                        statusSpan.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500"></i>';
+                        try {
+                            const resp = await fetch(`/sync/order/${orderId}`, { method: 'POST' });
+                            const data = await resp.json();
+                            if (data.status === 'success') {
+                                statusSpan.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle"></i> Synced</span>';
+                                loadManualInvoiceExportTable();
+                            } else if (data.status === 'already_synced') {
+                                // Show overwrite confirmation
+                                if (confirm(`Order already synced to Odoo as ${data.odoo_reference}. Do you want to overwrite it?`)) {
+                                    statusSpan.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500"></i>';
+                                    const overwriteResp = await fetch(`/sync/order/${orderId}?overwrite=true`, { method: 'POST' });
+                                    const overwriteData = await overwriteResp.json();
+                                    if (overwriteData.status === 'success') {
+                                        statusSpan.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle"></i> Overwritten</span>';
+                                        loadManualInvoiceExportTable();
+                                    } else {
+                                        statusSpan.innerHTML = `<span class="text-red-600"><i class="fas fa-times-circle"></i> ${overwriteData.message || 'Error'}</span>`;
+                                    }
+                                } else {
+                                    statusSpan.innerHTML = '';
+                                }
+                            } else {
+                                statusSpan.innerHTML = `<span class="text-red-600"><i class="fas fa-times-circle"></i> ${data.message || 'Error'}</span>`;
+                            }
+                        } catch (e) {
+                            statusSpan.innerHTML = '<span class="text-red-600"><i class="fas fa-times-circle"></i> Error</span>';
+                        }
+                    });
+                });
+                // Add event listeners for synced-options-btn (arrow button)
+                tableDiv.querySelectorAll('.synced-options-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const orderId = this.getAttribute('data-id');
+                        const odooRef = this.getAttribute('data-odoo-ref');
+                        showSyncedOrderModal(orderId, odooRef);
+                    });
+                });
+            } catch (e) {
+                tableDiv.innerHTML = '<div class="text-center text-red-600">Failed to load invoices/orders.</div>';
+            }
+        }
+        // Modal for synced order actions
+        if (!document.getElementById('syncedOrderModal')) {
+            const modalHtml = `
+            <div id="syncedOrderModal" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden">
+                <div class="bg-white rounded-lg shadow-lg p-6 max-w-md w-full">
+                    <div class="flex items-center mb-4">
+                        <i class="fas fa-info-circle text-blue-500 text-2xl mr-3"></i>
+                        <span class="font-bold text-lg text-gray-800">Order Already Synced</span>
+                    </div>
+                    <div class="mb-4 text-gray-700" id="syncedOrderModalMessage">
+                        This WooCommerce order is already synced to Odoo as <span id="modalOdooRef" class="font-mono text-blue-700"></span>.<br>What would you like to do?
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button id="syncedOrderOverwriteBtn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-1 px-4 rounded">Overwrite</button>
+                        <button id="syncedOrderNewBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-1 px-4 rounded">Create New Order</button>
+                        <button id="syncedOrderCancelBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-1 px-4 rounded">Cancel</button>
+                    </div>
+                </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+        let syncedOrderModalOrderId = null;
+        function showSyncedOrderModal(orderId, odooRef) {
+            syncedOrderModalOrderId = orderId;
+            document.getElementById('modalOdooRef').textContent = odooRef;
+            document.getElementById('syncedOrderModal').classList.remove('hidden');
+        }
+        document.getElementById('syncedOrderCancelBtn').onclick = function() {
+            document.getElementById('syncedOrderModal').classList.add('hidden');
+            syncedOrderModalOrderId = null;
+        };
+        document.getElementById('syncedOrderOverwriteBtn').onclick = async function() {
+            if (!syncedOrderModalOrderId) return;
+            const statusSpan = document.getElementById('sync-invoice-status-' + syncedOrderModalOrderId);
+            statusSpan.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500"></i>';
+            try {
+                const resp = await fetch(`/sync/order/${syncedOrderModalOrderId}?overwrite=true`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    statusSpan.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle"></i> Overwritten</span>';
+                    loadManualInvoiceExportTable();
+                } else {
+                    statusSpan.innerHTML = `<span class="text-red-600"><i class="fas fa-times-circle"></i> ${data.message || 'Error'}</span>`;
+                }
+            } catch (e) {
+                statusSpan.innerHTML = '<span class="text-red-600"><i class="fas fa-times-circle"></i> Error</span>';
+            }
+            document.getElementById('syncedOrderModal').classList.add('hidden');
+            syncedOrderModalOrderId = null;
+        };
+        document.getElementById('syncedOrderNewBtn').onclick = async function() {
+            if (!syncedOrderModalOrderId) return;
+            const statusSpan = document.getElementById('sync-invoice-status-' + syncedOrderModalOrderId);
+            statusSpan.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500"></i>';
+            try {
+                const resp = await fetch(`/sync/order/${syncedOrderModalOrderId}?force_new=true`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    statusSpan.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle"></i> New Order Created</span>';
+                    loadManualInvoiceExportTable();
+                } else {
+                    statusSpan.innerHTML = `<span class="text-red-600"><i class="fas fa-times-circle"></i> ${data.message || 'Error'}</span>`;
+                }
+            } catch (e) {
+                statusSpan.innerHTML = '<span class="text-red-600"><i class="fas fa-times-circle"></i> Error</span>';
+            }
+            document.getElementById('syncedOrderModal').classList.add('hidden');
+            syncedOrderModalOrderId = null;
         };
     </script>
 </body>

@@ -34,7 +34,30 @@ class WooCommerceClient:
             page += 1
 
     def get_orders(self, params=None):
+        """
+        Get orders from WooCommerce with their meta data.
+        """
+        if params is None:
+            params = {}
+        # Ensure we get meta_data in the response
+        params['_fields'] = 'id,number,status,date_created,billing,line_items,meta_data'
         return self.wcapi.get("orders", params=params).json()
+
+    def get_order_odoo_reference(self, order):
+        """
+        Extract Odoo reference from order meta data.
+        
+        Args:
+            order (dict): WooCommerce order data
+            
+        Returns:
+            str: Odoo reference if found, None otherwise
+        """
+        meta_data = order.get('meta_data', [])
+        for meta in meta_data:
+            if meta.get('key') == '_odoo_reference':
+                return meta.get('value')
+        return None
 
     def get_categories(self, params=None):
         # Fetch all categories, including parent information
@@ -93,4 +116,90 @@ class WooCommerceClient:
             if not variations:
                 break
             yield from variations
-            page += 1 
+            page += 1
+
+    def update_order(self, order_id, data):
+        """
+        Update a WooCommerce order with new data.
+        
+        Args:
+            order_id (int): The ID of the order to update
+            data (dict): The data to update the order with
+            
+        Returns:
+            dict: The updated order data
+        """
+        response = self.wcapi.put(f"orders/{order_id}", data)
+        if response.status_code != 200:
+            raise Exception(f"Failed to update WooCommerce order: {response.text}")
+        return response.json()
+
+    def add_order_note(self, order_id, note, customer_note=False):
+        """
+        Add a note to a WooCommerce order.
+        
+        Args:
+            order_id (int): The ID of the order to add the note to
+            note (str): The note text to add
+            customer_note (bool): Whether this is a customer-facing note
+            
+        Returns:
+            dict: The created note data
+        """
+        data = {
+            "note": note,
+            "customer_note": customer_note
+        }
+        response = self.wcapi.post(f"orders/{order_id}/notes", data)
+        if response.status_code != 201:  # 201 Created
+            raise Exception(f"Failed to add order note: {response.text}")
+        return response.json()
+
+    def update_order_meta(self, order_id, meta_updates):
+        """
+        Update multiple meta fields for a WooCommerce order.
+        
+        Args:
+            order_id (int): The ID of the order to update
+            meta_updates (dict): Dictionary of meta key-value pairs to update
+            Example: {
+                '_odoo_reference': 'SO123',
+                '_sync_status': 'completed',
+                '_sync_timestamp': '2024-03-20 10:00:00'
+            }
+            
+        Returns:
+            dict: The updated order data
+        """
+        try:
+            # First get the current order to preserve existing meta
+            current_order = self.wcapi.get(f"orders/{order_id}").json()
+            meta_data = current_order.get('meta_data', [])
+            
+            # Create a map of existing meta for quick lookup
+            existing_meta_map = {item.get('key'): item for item in meta_data}
+            
+            # Update or add each meta field
+            for key, value in meta_updates.items():
+                if key in existing_meta_map:
+                    # Update existing meta
+                    existing_meta_map[key]['value'] = value
+                else:
+                    # Add new meta
+                    meta_data.append({
+                        'key': key,
+                        'value': value
+                    })
+            
+            # Update the order with the modified meta_data
+            response = self.wcapi.put(f"orders/{order_id}", {
+                'meta_data': meta_data
+            })
+            
+            if response.status_code != 200:
+                raise Exception(f"Failed to update order meta: {response.text}")
+                
+            return response.json()
+            
+        except Exception as e:
+            raise Exception(f"Error updating order meta: {str(e)}") 
