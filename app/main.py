@@ -10,8 +10,10 @@ from sqlalchemy import desc
 import os
 from .wc import WooCommerceClient
 from .odoo import OdooClient
-from .models import SyncMapping, SyncLog
+from .models import SyncMapping, SyncLog, User
 from datetime import datetime
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from .auth import verify_password, get_password_hash, create_access_token, decode_access_token
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +35,8 @@ app.add_middleware(
 
 # Mount the static files directory
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
@@ -523,4 +527,32 @@ async def get_order_sync_logs(db: Session = Depends(get_db)):
             "error_message": log.error_message,
         }
         for log in logs
-    ] 
+    ]
+
+@app.post("/register")
+def register(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == form_data.username).first()
+    if user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    hashed_password = get_password_hash(form_data.password)
+    new_user = User(email=form_data.username, hashed_password=hashed_password)
+    db.add(new_user)
+    db.commit()
+    return {"msg": "User registered"}
+
+@app.post("/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect email or password")
+    access_token = create_access_token(data={"sub": user.email})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid authentication")
+    user = db.query(User).filter(User.email == payload.get("sub")).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user 

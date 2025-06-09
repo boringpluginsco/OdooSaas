@@ -8,6 +8,15 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body class="bg-gray-100 min-h-screen">
+    <div id="login-section" class="flex items-center justify-center min-h-screen bg-gray-100 hidden">
+      <form id="loginForm" class="bg-white p-8 rounded shadow-md w-full max-w-sm">
+        <h2 class="text-2xl font-bold mb-6 text-center">Login</h2>
+        <input id="loginEmail" type="email" placeholder="Email" required class="w-full mb-4 px-3 py-2 border rounded" />
+        <input id="loginPassword" type="password" placeholder="Password" required class="w-full mb-6 px-3 py-2 border rounded" />
+        <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded font-semibold">Login</button>
+        <div id="loginError" class="text-red-600 mt-4 text-center hidden"></div>
+      </form>
+    </div>
     <!-- Sidebar Overlay -->
     <div id="sidebar-overlay" class="fixed inset-0 bg-black bg-opacity-40 z-40 hidden transition-opacity duration-200"></div>
     <!-- Sidebar -->
@@ -15,9 +24,9 @@
         <button id="sidebar-close" class="absolute top-4 right-4 text-gray-300 text-2xl focus:outline-none hidden">
             <i class="fas fa-times"></i>
         </button>
-        <div class="p-4 pt-8">
+        <div class="p-4 pt-8 flex flex-col h-full">
             <h2 class="text-xl font-bold mb-6">WooDoo Sync</h2>
-            <nav>
+            <nav class="flex-1">
                 <a href="#configuration" class="block py-2 px-4 hover:bg-gray-700 rounded-lg mb-2 transition-colors">
                     <i class="fas fa-cog mr-2"></i>Configuration
                 </a>
@@ -30,18 +39,16 @@
                 <a href="#invoices" class="block py-2 px-4 hover:bg-gray-700 rounded-lg mb-2 transition-colors">
                     <i class="fas fa-file-invoice mr-2"></i>Invoices
                 </a>
-                <a href="#sync-history" class="block py-2 px-4 hover:bg-gray-700 rounded-lg mb-2 transition-colors">
-                    <i class="fas fa-history mr-2"></i>Sync History
-                </a>
             </nav>
+            <button id="logoutBtn" class="block w-full text-left py-2 px-4 hover:bg-gray-700 rounded-lg mt-4 text-white font-semibold hidden mb-2">
+                <i class="fas fa-sign-out-alt mr-2"></i>Logout
+            </button>
         </div>
     </div>
-
     <!-- Sidebar Toggle -->
-    <button id="sidebar-toggle" class="fixed top-4 left-4 z-50 text-gray-800 text-2xl focus:outline-none">
+    <button id="sidebar-toggle" class="fixed top-4 left-4 z-50 text-gray-800 text-2xl focus:outline-none hidden">
         <i class="fas fa-bars"></i>
     </button>
-
     <!-- Main Content -->
     <div id="main-content" class="ml-0 transition-all duration-300 ease-in-out">
         <div class="container mx-auto px-4 py-8">
@@ -824,6 +831,61 @@
                 container.innerHTML = '<div class="text-center text-red-600">Failed to load order sync log.</div>';
             }
         }
+
+        // Login logic
+        function showLogin() {
+            document.getElementById('login-section').classList.remove('hidden');
+            document.getElementById('main-content').classList.add('hidden');
+            document.getElementById('sidebar').classList.add('hidden');
+            document.getElementById('logoutBtn').classList.add('hidden');
+            document.getElementById('sidebar-toggle').classList.add('hidden');
+        }
+        function showDashboard() {
+            document.getElementById('login-section').classList.add('hidden');
+            document.getElementById('main-content').classList.remove('hidden');
+            document.getElementById('sidebar').classList.remove('hidden');
+            document.getElementById('logoutBtn').classList.remove('hidden');
+            document.getElementById('sidebar-toggle').classList.remove('hidden');
+        }
+        function isLoggedIn() {
+            return !!localStorage.getItem('access_token');
+        }
+        if (!isLoggedIn()) showLogin();
+
+        document.getElementById('loginForm').onsubmit = async function(e) {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const resp = await fetch('/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: `username=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`
+            });
+            const data = await resp.json();
+            if (data.access_token) {
+                localStorage.setItem('access_token', data.access_token);
+                showDashboard();
+            } else {
+                document.getElementById('loginError').textContent = data.detail || 'Login failed';
+                document.getElementById('loginError').classList.remove('hidden');
+            }
+        };
+        document.getElementById('logoutBtn').onclick = function() {
+            localStorage.removeItem('access_token');
+            showLogin();
+        };
+        // Patch fetch to always send Authorization header if logged in
+        const origFetch = window.fetch;
+        window.fetch = function(url, opts = {}) {
+            opts.headers = opts.headers || {};
+            const token = localStorage.getItem('access_token');
+            if (token) {
+                opts.headers['Authorization'] = 'Bearer ' + token;
+            }
+            return origFetch(url, opts);
+        };
+        // On page load, show dashboard if logged in
+        if (isLoggedIn()) showDashboard();
     </script>
 </body>
 </html>
