@@ -47,7 +47,38 @@
                 <h2 class="text-2xl font-semibold text-gray-800 mb-4">
                     <i class="fas fa-cog mr-2"></i>Configuration
                 </h2>
-                <p class="text-gray-600">Settings for your WooCommerce and Odoo connections will go here.</p>
+                <form id="configForm" class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <h3 class="text-lg font-semibold text-blue-700 mb-4 flex items-center"><i class="fab fa-wordpress mr-2"></i>WooCommerce</h3>
+                        <div class="mb-4">
+                            <label class="block text-gray-700 font-medium mb-1" for="wc_url">URL</label>
+                            <input id="wc_url" type="text" class="w-full px-3 py-2 border rounded bg-gray-100 text-gray-700" readonly disabled>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-gray-700 font-medium mb-1" for="wc_api_key">API Key</label>
+                            <input id="wc_api_key" type="text" class="w-full px-3 py-2 border rounded bg-gray-100 text-gray-700 tracking-widest" readonly disabled>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-gray-700 font-medium mb-1" for="wc_api_secret">API Secret</label>
+                            <input id="wc_api_secret" type="text" class="w-full px-3 py-2 border rounded bg-gray-100 text-gray-700 tracking-widest" readonly disabled>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-purple-700 mb-4 flex items-center"><i class="fas fa-cube mr-2"></i>Odoo</h3>
+                        <div class="mb-4">
+                            <label class="block text-gray-700 font-medium mb-1" for="odoo_url">URL</label>
+                            <input id="odoo_url" type="text" class="w-full px-3 py-2 border rounded bg-gray-100 text-gray-700" readonly disabled>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-gray-700 font-medium mb-1" for="odoo_username">Username</label>
+                            <input id="odoo_username" type="text" class="w-full px-3 py-2 border rounded bg-gray-100 text-gray-700" readonly disabled>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-gray-700 font-medium mb-1" for="odoo_api_key">API Key</label>
+                            <input id="odoo_api_key" type="text" class="w-full px-3 py-2 border rounded bg-gray-100 text-gray-700 tracking-widest" readonly disabled>
+                        </div>
+                    </div>
+                </form>
             </section>
 
             <!-- Products Section -->
@@ -79,8 +110,29 @@
                         class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
                     <i class="fas fa-sync mr-2"></i>Trigger Customer Sync (Woo → Odoo)
                 </button>
+                <button id="manualSyncCustomersButton" onclick="showManualCustomerSync(event)"
+                        class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition-colors ml-2">
+                    <i class="fas fa-user-cog mr-2"></i>Manual Sync
+                </button>
                 <div id="customerStatus" class="mt-4 p-4 rounded-lg bg-gray-50 text-gray-700">
                     Click the button to start the customer sync.
+                </div>
+                <div id="manualCustomerSyncTable" class="mt-6 hidden"></div>
+                <!-- Modal for overwrite confirmation -->
+                <div id="overwriteModal" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden">
+                    <div class="bg-white rounded-lg shadow-lg p-6 max-w-md w-full">
+                        <div class="flex items-center mb-4">
+                            <i class="fas fa-exclamation-triangle text-yellow-500 text-2xl mr-3"></i>
+                            <span class="font-bold text-lg text-gray-800">Customer Exists in Odoo</span>
+                        </div>
+                        <div class="mb-4 text-gray-700" id="overwriteModalMessage">
+                            A customer with this email already exists in Odoo. Do you want to overwrite the existing customer with the WooCommerce data?
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button id="overwriteCancelBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-1 px-4 rounded">Cancel</button>
+                            <button id="overwriteConfirmBtn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-4 rounded">Overwrite</button>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -348,7 +400,138 @@
                     : '<div class="text-center py-8 text-red-600">Failed to load history.</div>';
             }
         }
-        document.addEventListener('DOMContentLoaded', loadSyncHistory);
+        async function loadConfig() {
+            try {
+                const response = await fetch('/config');
+                const data = await response.json();
+                document.getElementById('wc_url').value = data.wc_url || '';
+                document.getElementById('wc_api_key').value = data.wc_api_key || '';
+                document.getElementById('wc_api_secret').value = data.wc_api_secret || '';
+                document.getElementById('odoo_url').value = data.odoo_url || '';
+                document.getElementById('odoo_username').value = data.odoo_username || '';
+                document.getElementById('odoo_api_key').value = data.odoo_api_key || '';
+            } catch (e) {
+                // Optionally show an error
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            loadConfig();
+            loadSyncHistory();
+        });
+
+        function showManualCustomerSync(event) {
+            event.preventDefault();
+            const tableDiv = document.getElementById('manualCustomerSyncTable');
+            if (tableDiv.classList.contains('hidden')) {
+                loadManualCustomerSyncTable();
+                tableDiv.classList.remove('hidden');
+            } else {
+                tableDiv.classList.add('hidden');
+            }
+        }
+        async function loadManualCustomerSyncTable() {
+            const tableDiv = document.getElementById('manualCustomerSyncTable');
+            tableDiv.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-2xl text-blue-500"></i> Loading customers...</div>';
+            try {
+                const response = await fetch('/woo/customers');
+                const customers = await response.json();
+                if (!Array.isArray(customers) || customers.length === 0) {
+                    tableDiv.innerHTML = '<div class="text-center text-gray-500">No customers found in WooCommerce.</div>';
+                    return;
+                }
+                tableDiv.innerHTML = `
+                    <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 text-sm bg-white rounded shadow">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">ID</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Name</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Email</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Username</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Created</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Sync</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${customers.map(c => `
+                                <tr id="customer-row-${c.id}">
+                                    <td class="px-3 py-2">${c.id}</td>
+                                    <td class="px-3 py-2">${(c.first_name || '') + ' ' + (c.last_name || '')}</td>
+                                    <td class="px-3 py-2">${c.email || ''}</td>
+                                    <td class="px-3 py-2">${c.username || ''}</td>
+                                    <td class="px-3 py-2">${c.date_created ? new Date(c.date_created).toLocaleDateString() : ''}</td>
+                                    <td class="px-3 py-2 text-center">
+                                        <button class="sync-customer-btn bg-blue-500 hover:bg-blue-600 text-white rounded px-2 py-1" data-id="${c.id}" title="Sync to Odoo">
+                                            <i class="fas fa-arrow-right"></i>
+                                        </button>
+                                        <span class="ml-2 text-xs" id="sync-status-${c.id}"></span>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    </div>
+                `;
+                // Add event listeners for sync buttons
+                tableDiv.querySelectorAll('.sync-customer-btn').forEach(btn => {
+                    btn.addEventListener('click', async function() {
+                        const customerId = this.getAttribute('data-id');
+                        const statusSpan = document.getElementById('sync-status-' + customerId);
+                        statusSpan.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500"></i>';
+                        try {
+                            const resp = await fetch(`/sync/customer/${customerId}`, { method: 'POST' });
+                            const data = await resp.json();
+                            if (data.status === 'success') {
+                                statusSpan.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle"></i> Synced</span>';
+                            } else if (data.status === 'skipped') {
+                                statusSpan.innerHTML = '<span class="text-yellow-600"><i class="fas fa-ban"></i> Exists</span>';
+                            } else if (data.status === 'conflict') {
+                                showOverwriteModal(customerId, statusSpan);
+                            } else if (data.status === 'overwritten') {
+                                statusSpan.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle"></i> Overwritten</span>';
+                            } else {
+                                statusSpan.innerHTML = '<span class="text-red-600"><i class="fas fa-times-circle"></i> Error</span>';
+                            }
+                        } catch (e) {
+                            statusSpan.innerHTML = '<span class="text-red-600"><i class="fas fa-times-circle"></i> Error</span>';
+                        }
+                    });
+                });
+            } catch (e) {
+                tableDiv.innerHTML = '<div class="text-center text-red-600">Failed to load customers.</div>';
+            }
+        }
+        // Modal logic for overwrite confirmation
+        let overwriteCustomerId = null;
+        let overwriteStatusSpan = null;
+        function showOverwriteModal(customerId, statusSpan) {
+            overwriteCustomerId = customerId;
+            overwriteStatusSpan = statusSpan;
+            document.getElementById('overwriteModal').classList.remove('hidden');
+        }
+        document.getElementById('overwriteCancelBtn').onclick = function() {
+            document.getElementById('overwriteModal').classList.add('hidden');
+            overwriteCustomerId = null;
+            overwriteStatusSpan = null;
+        };
+        document.getElementById('overwriteConfirmBtn').onclick = async function() {
+            if (!overwriteCustomerId || !overwriteStatusSpan) return;
+            overwriteStatusSpan.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500"></i>';
+            try {
+                const resp = await fetch(`/sync/customer/${overwriteCustomerId}?overwrite=true`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.status === 'overwritten') {
+                    overwriteStatusSpan.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle"></i> Overwritten</span>';
+                } else {
+                    overwriteStatusSpan.innerHTML = '<span class="text-red-600"><i class="fas fa-times-circle"></i> Error</span>';
+                }
+            } catch (e) {
+                overwriteStatusSpan.innerHTML = '<span class="text-red-600"><i class="fas fa-times-circle"></i> Error</span>';
+            }
+            document.getElementById('overwriteModal').classList.add('hidden');
+            overwriteCustomerId = null;
+            overwriteStatusSpan = null;
+        };
     </script>
 </body>
 </html>
