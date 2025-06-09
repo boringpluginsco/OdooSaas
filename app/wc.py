@@ -68,4 +68,29 @@ class WooCommerceClient:
         return self.wcapi.put(f"products/{product_id}", data).json()
 
     def delete_product(self, product_id):
-        return self.wcapi.delete(f"products/{product_id}").json() 
+        return self.wcapi.delete(f"products/{product_id}").json()
+
+    def get_variable_products_generator(self, batch_size=100):
+        page = 1
+        while True:
+            products = self.wcapi.get("products", params={
+                'page': page,
+                'per_page': batch_size,
+                'type': 'variable'
+            }).json()
+            if not products:
+                break
+            yield from products
+            page += 1
+
+    def get_product_variations(self, product_id, batch_size=100):
+        page = 1
+        while True:
+            variations = self.wcapi.get(f"products/{product_id}/variations", params={
+                'page': page,
+                'per_page': batch_size
+            }).json()
+            if not variations:
+                break
+            yield from variations
+            page += 1 

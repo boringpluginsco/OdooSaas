@@ -102,4 +102,20 @@ async def sync_status(task_id: str):
         }
     except Exception as e:
         logger.error(f"Error checking task status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/sync/variable-products")
+async def sync_variable_products(db: Session = Depends(get_db)):
+    """
+    Trigger a sync of variable products from WooCommerce to Odoo
+    """
+    try:
+        task = tasks.sync_variable_products_wc_to_odoo.delay()
+        logger.info(f"Variable product sync task initiated with ID: {task.id}")
+        return {
+            "message": "Variable product sync initiated",
+            "task_id": task.id
+        }
+    except Exception as e:
+        logger.error(f"Error initiating variable product sync: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 
