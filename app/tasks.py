@@ -70,6 +70,15 @@ def sync_products_wc_to_odoo(self):
     # Get sync run record
     sync_run = db.query(SyncRun).filter_by(task_id=self.request.id).first()
     start_time = datetime.utcnow()
+    if not sync_run:
+        sync_run = SyncRun(
+            task_id=self.request.id,
+            sync_type='simple',
+            status='running',
+            started_at=start_time
+        )
+        db.add(sync_run)
+        db.commit()
     
     # Initialize counters
     products_processed = 0
@@ -405,6 +414,15 @@ def sync_variable_products_wc_to_odoo(self):
     # Get sync run record
     sync_run = db.query(SyncRun).filter_by(task_id=self.request.id).first()
     start_time = datetime.utcnow()
+    if not sync_run:
+        sync_run = SyncRun(
+            task_id=self.request.id,
+            sync_type='variable',
+            status='running',
+            started_at=start_time
+        )
+        db.add(sync_run)
+        db.commit()
     
     # Initialize counters
     products_processed = 0
@@ -682,6 +700,15 @@ def sync_customers_wc_to_odoo(self):
     # Get sync run record
     sync_run = db.query(SyncRun).filter_by(task_id=self.request.id).first()
     start_time = datetime.utcnow()
+    if not sync_run:
+        sync_run = SyncRun(
+            task_id=self.request.id,
+            sync_type='customer',
+            status='running',
+            started_at=start_time
+        )
+        db.add(sync_run)
+        db.commit()
     
     # Initialize counters
     customers_processed = 0
