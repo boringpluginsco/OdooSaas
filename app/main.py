@@ -87,6 +87,13 @@ async def sync_status(task_id: str):
                 "status": "failed",
                 "error": str(task.result)
             }
+        
+        if task.state == 'PROGRESS':
+            return {
+                "task_id": task_id,
+                "status": "in_progress",
+                "progress": task.info
+            }
             
         return {
             "task_id": task_id,

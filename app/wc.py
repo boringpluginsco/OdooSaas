@@ -16,6 +16,23 @@ class WooCommerceClient:
     def get_products(self, params=None):
         return self.wcapi.get("products", params=params).json()
 
+    def get_products_generator(self, batch_size=100):
+        """
+        Generator that yields products in batches to handle large datasets efficiently.
+        """
+        page = 1
+        while True:
+            products = self.wcapi.get("products", params={
+                'page': page,
+                'per_page': batch_size
+            }).json()
+            
+            if not products:
+                break
+                
+            yield from products
+            page += 1
+
     def get_orders(self, params=None):
         return self.wcapi.get("orders", params=params).json()
 
@@ -26,6 +43,23 @@ class WooCommerceClient:
     def get_customers(self, params=None):
         # Fetch customer data from WooCommerce
         return self.wcapi.get("customers", params=params).json()
+
+    def get_customers_generator(self, batch_size=100):
+        """
+        Generator that yields customers in batches to handle large datasets efficiently.
+        """
+        page = 1
+        while True:
+            customers = self.wcapi.get("customers", params={
+                'page': page,
+                'per_page': batch_size
+            }).json()
+            
+            if not customers:
+                break
+                
+            yield from customers
+            page += 1
 
     def create_product(self, data):
         return self.wcapi.post("products", data).json()

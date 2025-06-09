@@ -11,7 +11,7 @@
     <!-- Sidebar -->
     <div id="sidebar" class="fixed top-0 left-0 h-full w-64 bg-gray-800 text-white transform -translate-x-full transition-transform duration-300 ease-in-out z-50">
         <div class="p-4">
-            <h2 class="text-xl font-bold mb-6">Navigation</h2>
+            <h2 class="text-xl font-bold mb-6">WooDoo Sync</h2>
             <nav>
                 <a href="#configuration" class="block py-2 px-4 hover:bg-gray-700 rounded-lg mb-2 transition-colors">
                     <i class="fas fa-cog mr-2"></i>Configuration
@@ -150,6 +150,9 @@
                             Sync initiated successfully! Task ID: <strong>${data.task_id}</strong>. ${data.message}
                         </div>`;
                     statusDiv.classList.add('bg-green-50');
+                    
+                    // Start polling for progress
+                    pollTaskStatus(data.task_id, statusDiv);
                 } else {
                     statusDiv.innerHTML = `
                         <div class="flex items-center text-red-600">
@@ -170,6 +173,51 @@
             } finally {
                 if (syncButton) syncButton.disabled = false;
             }
+        }
+
+        async function pollTaskStatus(taskId, statusDiv) {
+            const progressBar = document.createElement('div');
+            progressBar.className = 'w-full bg-gray-200 rounded-full h-2.5 mt-2';
+            const progressInner = document.createElement('div');
+            progressInner.className = 'bg-blue-600 h-2.5 rounded-full transition-all duration-300';
+            progressBar.appendChild(progressInner);
+            statusDiv.appendChild(progressBar);
+
+            const statusText = document.createElement('div');
+            statusText.className = 'mt-2 text-sm text-gray-600';
+            statusDiv.appendChild(statusText);
+
+            const pollInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/sync/status/${taskId}`);
+                    const data = await response.json();
+
+                    if (data.status === 'in_progress') {
+                        const progress = data.progress;
+                        const percentage = (progress.current / progress.total) * 100;
+                        progressInner.style.width = `${percentage}%`;
+                        statusText.textContent = progress.status;
+                    } else if (data.status === 'SUCCESS') {
+                        clearInterval(pollInterval);
+                        statusDiv.innerHTML = `
+                            <div class="flex items-center text-green-600">
+                                <i class="fas fa-check-circle mr-2"></i>
+                                Sync completed successfully!
+                            </div>`;
+                        statusDiv.classList.add('bg-green-50');
+                    } else if (data.status === 'failed') {
+                        clearInterval(pollInterval);
+                        statusDiv.innerHTML = `
+                            <div class="flex items-center text-red-600">
+                                <i class="fas fa-exclamation-circle mr-2"></i>
+                                Sync failed: ${data.error}
+                            </div>`;
+                        statusDiv.classList.add('bg-red-50');
+                    }
+                } catch (error) {
+                    console.error('Error polling task status:', error);
+                }
+            }, 1000); // Poll every second
         }
     </script>
 </body>
