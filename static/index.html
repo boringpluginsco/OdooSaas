@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sync Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background-color: #f4f4f4;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        #sidebar {
+            width: 250px;
+            background-color: #333;
+            color: white;
+            padding: 20px;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.2);
+            position: fixed;
+            height: 100%;
+            left: -250px; /* Hidden by default */
+            transition: left 0.3s ease;
+            z-index: 1000;
+        }
+
+        #sidebar.open {
+            left: 0;
+        }
+
+        #sidebar a {
+            color: white;
+            text-decoration: none;
+            display: block;
+            padding: 10px 0;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #555;
+            transition: background-color 0.3s ease;
+        }
+
+        #sidebar a:hover {
+            background-color: #555;
+            border-radius: 5px;
+        }
+
+        #main-content {
+            margin-left: 0;
+            padding: 10px 50px;
+            transition: margin-left 0.3s ease;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        body.sidebar-open #main-content {
+            margin-left: 250px; /* Match sidebar width */
+        }
+
+        #sidebar-toggle {
+            font-size: 30px;
+            cursor: pointer;
+            position: fixed;
+            top: 20px;
+            left: 10px;
+            z-index: 1001;
+            color: white;
+            transition: left 0.3s ease, color 0.3s ease;
+        }
+
+        .section {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        h1, h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        #status {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #e9ecef;
+            color: #333;
+            min-height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        .success {
+            border-color: #28a745;
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .error {
+            border-color: #dc3545;
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <h2>Navigation</h2>
+        <a href="#configuration" onclick="toggleSidebar()">Configuration</a>
+        <a href="#products" onclick="toggleSidebar()">Products</a>
+        <a href="#customers" onclick="toggleSidebar()">Customers</a>
+        <a href="#invoices" onclick="toggleSidebar()">Invoices</a>
+    </div>
+
+    <div id="sidebar-toggle" onclick="toggleSidebar()">&#9776;</div>
+
+    <div id="main-content">
+        <h1>WooCommerce-Odoo Sync Dashboard</h1>
+
+        <section id="configuration" class="section">
+            <h2>Configuration</h2>
+            <p>Settings for your WooCommerce and Odoo connections will go here.</p>
+        </section>
+
+        <section id="products" class="section">
+            <h2>Products</h2>
+            <p>Sync products between WooCommerce and Odoo.</p>
+            <button id="syncButton">Trigger Product Sync (Woo &#8594; Odoo)</button>
+            <div id="status">Click the button to start the sync.</div>
+        </section>
+
+        <section id="customers" class="section">
+            <h2>Customers</h2>
+            <p>Sync customer data between WooCommerce and Odoo.</p>
+        </section>
+
+        <section id="invoices" class="section">
+            <h2>Invoices</h2>
+            <p>Sync invoice data between WooCommerce and Odoo.</p>
+        </section>
+    </div>
+
+    <script>
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const body = document.body;
+            const sidebarToggle = document.getElementById('sidebar-toggle');
+
+            sidebar.classList.toggle('open');
+            body.classList.toggle('sidebar-open');
+
+            if (sidebar.classList.contains('open')) {
+                sidebarToggle.innerHTML = '&times;';
+                sidebarToggle.style.left = '250px';
+                sidebarToggle.style.color = 'white';
+            } else {
+                sidebarToggle.innerHTML = '&#9776;';
+                sidebarToggle.style.left = '10px';
+                sidebarToggle.style.color = 'white';
+            }
+        }
+
+        document.querySelectorAll('#sidebar a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        document.getElementById('syncButton').addEventListener('click', triggerProductSync);
+
+        async function triggerProductSync() {
+            const statusDiv = document.getElementById('status');
+            const syncButton = document.getElementById('syncButton');
+            statusDiv.innerHTML = 'Initiating product sync... Please wait.';
+            statusDiv.className = '';
+            syncButton.disabled = true;
+
+            try {
+                const response = await fetch('/sync/products', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    statusDiv.innerHTML = `Sync initiated successfully! Task ID: <strong>${data.task_id}</strong>. ${data.message}`;
+                    statusDiv.classList.add('success');
+                } else {
+                    statusDiv.innerHTML = `Error initiating sync: ${data.detail || JSON.stringify(data)}`;
+                    statusDiv.classList.add('error');
+                    console.error('API Error:', data);
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `Network error: ${error.message}. Please check your connection and server.`;
+                statusDiv.classList.add('error');
+                console.error('Fetch Error:', error);
+            } finally {
+                syncButton.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

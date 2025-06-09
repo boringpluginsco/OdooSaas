@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from . import models, tasks
 from .db import get_db, engine
 import logging
+from fastapi.staticfiles import StaticFiles
+from starlette.responses import HTMLResponse, FileResponse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,9 +25,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-async def root():
-    return {"message": "WooCommerce-Odoo Sync API is running"}
+# Mount the static files directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_frontend():
+    return FileResponse("static/index.html")
 
 @app.get("/health")
 async def health_check():
