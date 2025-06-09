@@ -23,6 +23,10 @@ class WooCommerceClient:
         # Fetch all categories, including parent information
         return self.wcapi.get("products/categories", params=params).json()
 
+    def get_customers(self, params=None):
+        # Fetch customer data from WooCommerce
+        return self.wcapi.get("customers", params=params).json()
+
     def create_product(self, data):
         return self.wcapi.post("products", data).json()
 

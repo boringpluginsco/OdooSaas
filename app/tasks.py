@@ -230,4 +230,120 @@ def sync_products_wc_to_odoo(self):
         logger.error(f"Error during sync: {str(e)}")
         raise e
     finally:
+        db.close()
+
+@celery_app.task(bind=True)
+def sync_customers_wc_to_odoo(self):
+    logger.info("Starting customer sync from WooCommerce to Odoo")
+    wc = WooCommerceClient()
+    odoo = OdooClient()
+    db = SessionLocal()
+
+    try:
+        logger.info("Fetching customers from WooCommerce")
+        wc_customers = wc.get_customers(params={'per_page': 100}) # Fetch all customers
+        logger.info(f"Found {len(wc_customers)} customers in WooCommerce")
+
+        for customer in wc_customers:
+            try:
+                wc_id = str(customer['id'])
+                customer_email = customer.get('email')
+
+                if not customer_email:
+                    logger.warning(f"Skipping customer {wc_id} due to missing email address.")
+                    continue
+
+                # Check if customer already exists in Odoo by email
+                odoo_partner_id = odoo.get_partner_by_email(customer_email)
+
+                if odoo_partner_id:
+                    logger.info(f"Customer {customer_email} already exists in Odoo with ID {odoo_partner_id}. Skipping update for now.")
+                    # In a full implementation, you would add update logic here
+                else:
+                    logger.info(f"Creating new customer in Odoo: {customer_email}")
+                    billing = customer.get('billing', {})
+                    shipping = customer.get('shipping', {})
+
+                    partner_vals = {
+                        'name': f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip(),
+                        'email': customer_email,
+                        'active': True,
+                    }
+
+                    # Conditionally add fields if they have a non-None value
+                    phone = billing.get('phone')
+                    if phone:
+                        partner_vals['phone'] = phone
+
+                    street = billing.get('address_1')
+                    if street:
+                        partner_vals['street'] = street
+                    
+                    street2 = billing.get('address_2')
+                    if street2:
+                        partner_vals['street2'] = street2
+
+                    city = billing.get('city')
+                    if city:
+                        partner_vals['city'] = city
+
+                    zip_code = billing.get('postcode')
+                    if zip_code:
+                        partner_vals['zip'] = zip_code
+
+                    country_name = billing.get('country')
+                    country_id = odoo.get_or_create_country(country_name) if country_name else None
+                    if country_id:
+                        partner_vals['country_id'] = country_id
+                    
+                    # Odoo states require lookup by code+country_id, often this is left empty or requires more complex mapping
+                    # For now, we will not set state_id if it's None to avoid the error.
+                    # If WooCommerce provides state code, it can be mapped here.
+                    # state_id = None 
+                    # if state_id:
+                    #     partner_vals['state_id'] = state_id
+
+                    new_odoo_id = odoo.create('res.partner', partner_vals)
+
+                    # Create mapping
+                    mapping = SyncMapping(
+                        entity_type='customer',
+                        wc_id=wc_id,
+                        odoo_id=str(new_odoo_id)
+                    )
+                    db.add(mapping)
+                    
+                # Log sync
+                log = SyncLog(
+                    entity_type='customer',
+                    entity_id=wc_id,
+                    source='woocommerce',
+                    action='sync',
+                    status='success'
+                )
+                db.add(log)
+
+            except Exception as e:
+                logger.error(f"Error processing customer {customer.get('id', 'unknown')}: {str(e)}")
+                # Log the error
+                log = SyncLog(
+                    entity_type='customer',
+                    entity_id=str(customer.get('id', 'unknown')),
+                    source='woocommerce',
+                    action='sync',
+                    status='failed',
+                    error_message=str(e)
+                )
+                db.add(log)
+                continue
+        
+        db.commit()
+        logger.info("Customer sync completed successfully")
+        return "Customer sync completed successfully"
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error during customer sync: {str(e)}")
+        raise e
+    finally:
         db.close() 

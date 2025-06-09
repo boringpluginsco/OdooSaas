@@ -54,6 +54,23 @@ async def sync_products(db: Session = Depends(get_db)):
         logger.error(f"Error initiating sync: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/sync/customers-woo-to-odoo")
+async def sync_customers_woo_to_odoo(db: Session = Depends(get_db)):
+    """
+    Trigger a sync of customers from WooCommerce to Odoo
+    """
+    try:
+        task = tasks.sync_customers_wc_to_odoo.delay()
+        logger.info(f"Customer sync task initiated with ID: {task.id}")
+        
+        return {
+            "message": "Customer sync initiated",
+            "task_id": task.id
+        }
+    except Exception as e:
+        logger.error(f"Error initiating customer sync: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/sync/status/{task_id}")
 async def sync_status(task_id: str):
     """

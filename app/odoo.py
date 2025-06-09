@@ -93,4 +93,21 @@ class OdooClient:
                 return base64.b64encode(response.content).decode('utf-8')
         except Exception:
             pass
-        return None 
+        return None
+
+    def get_partner_by_email(self, email):
+        partners = self.search_read('res.partner', [('email', '=', email)], ['id'])
+        if partners:
+            return partners[0]['id']
+        return None
+
+    def get_or_create_country(self, country_name):
+        if not country_name:
+            return None
+        countries = self.search_read('res.country', [('name', 'ilike', country_name)], ['id'])
+        if countries:
+            return countries[0]['id']
+        # Create if not found
+        # Note: Odoo country name should match WooCommerce country name for this to work perfectly.
+        # Consider a more robust mapping if country names differ.
+        return self.create('res.country', {'name': country_name}) 
