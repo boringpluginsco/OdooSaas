@@ -2,7 +2,7 @@ from celery import Celery
 from .wc import WooCommerceClient
 from .odoo import OdooClient
 from .db import SessionLocal
-from .models import SyncLog, SyncMapping
+from .models import SyncLog, SyncMapping, SyncRun
 import os
 from dotenv import load_dotenv
 import logging
@@ -10,6 +10,7 @@ import requests
 from typing import List, Dict, Any
 from collections import defaultdict
 import time
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -65,6 +66,16 @@ def sync_products_wc_to_odoo(self):
     wc = WooCommerceClient()
     odoo = OdooClient()
     db = SessionLocal()
+    
+    # Get sync run record
+    sync_run = db.query(SyncRun).filter_by(task_id=self.request.id).first()
+    start_time = datetime.utcnow()
+    
+    # Initialize counters
+    products_processed = 0
+    products_created = 0
+    products_updated = 0
+    products_skipped = 0
     
     try:
         # Update task state to indicate start
@@ -124,28 +135,31 @@ def sync_products_wc_to_odoo(self):
         # Process products in batches
         batch_size = 50
         current_batch = []
-        total_processed = 0
         total_products = 0  # Will be updated as we process
 
         def process_batch(batch):
-            nonlocal total_processed
+            nonlocal products_processed, products_created, products_updated, products_skipped
             for product in batch:
                 if product.get('type') == 'variable':
                     continue  # Skip variable products
                 try:
                     wc_id = str(product['id'])
                     processed_wc_ids.add(wc_id)
-                    total_processed += 1
+                    products_processed += 1
                     
                     # Update progress
                     self.update_state(state='PROGRESS', meta={
-                        'current': total_processed,
+                        'current': products_processed,
                         'total': total_products,
-                        'status': f'Processing product {total_processed}/{total_products}: {product["name"]}'
+                        'status': f'Processing product {products_processed}/{total_products}: {product["name"]}'
                     })
 
                     # Process product
-                    process_single_product(product, wc_id, wc_cat_to_odoo_cat_id_map, odoo, db, wc_id_to_mapping)
+                    created = process_single_product(product, wc_id, wc_cat_to_odoo_cat_id_map, odoo, db, wc_id_to_mapping)
+                    if created:
+                        products_created += 1
+                    else:
+                        products_updated += 1
                     
                 except Exception as e:
                     logger.error(f"Error processing product {product.get('id', 'unknown')}: {str(e)}")
@@ -172,20 +186,37 @@ def sync_products_wc_to_odoo(self):
                 image_url = product['images'][0]['src']
                 image_base64 = odoo.get_image_base64_from_url(image_url)
 
+            # --- PRICE HANDLING ---
+            # Handle missing or invalid prices
+            try:
+                price_value = product.get('price', '0')
+                if not price_value or price_value == '':
+                    price_value = '0'
+                list_price = float(price_value)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Invalid price '{product.get('price')}' for product {product['name']} (ID: {product['id']}). Setting price to 0.")
+                list_price = 0.0
+
             # Check if product is already mapped
             mapping = wc_id_to_mapping.get(wc_id)
             
             product_vals = {
                 'name': product['name'],
-                'list_price': float(product['price']),
+                'list_price': list_price,
                 'default_code': product['sku'],
                 'active': True,
                 'description': description,
-                
                 'is_storable': True  # Enable "Track Inventory"
             }
+            
+            # Handle stock quantity with proper validation
             if product.get('stock_quantity') is not None:
-                product_vals['qty_available'] = float(product['stock_quantity'])
+                try:
+                    stock_qty = float(product['stock_quantity'])
+                    product_vals['qty_available'] = stock_qty
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid stock quantity '{product.get('stock_quantity')}' for product {product['name']} (ID: {product['id']}). Skipping quantity update.")
+
             if odoo_product_category_id:
                 product_vals['categ_id'] = odoo_product_category_id
             if image_base64:
@@ -238,6 +269,7 @@ def sync_products_wc_to_odoo(self):
 
             # Log sync
             log_success(db, 'product', wc_id)
+            return True
 
         def log_success(db, entity_type, entity_id):
             log = SyncLog(
@@ -321,18 +353,47 @@ def sync_products_wc_to_odoo(self):
         
         db.commit()
         logger.info("Product sync completed successfully")
+        
+        # Update sync run record with final statistics
+        if sync_run:
+            end_time = datetime.utcnow()
+            sync_run.status = 'completed'
+            sync_run.completed_at = end_time
+            sync_run.duration = (end_time - start_time).total_seconds()
+            sync_run.products_processed = products_processed
+            sync_run.products_created = products_created
+            sync_run.products_updated = products_updated
+            sync_run.products_skipped = products_skipped
+            db.commit()
+        
         return {
-            'current': total_products,
-            'total': total_products,
-            'status': 'Sync completed successfully'
+            'current': products_processed,
+            'total': products_processed,
+            'status': 'Sync completed successfully',
+            'products_processed': products_processed,
+            'products_created': products_created,
+            'products_updated': products_updated,
+            'products_skipped': products_skipped
         }
         
     except Exception as e:
         db.rollback()
         logger.error(f"Error during sync: {str(e)}")
+        
+        # Update sync run record with error
+        if sync_run:
+            end_time = datetime.utcnow()
+            sync_run.status = 'failed'
+            sync_run.completed_at = end_time
+            sync_run.duration = (end_time - start_time).total_seconds()
+            sync_run.products_processed = products_processed
+            sync_run.products_created = products_created
+            sync_run.products_updated = products_updated
+            sync_run.products_skipped = products_skipped
+            sync_run.error_message = str(e)
+            db.commit()
+        
         raise e
-    finally:
-        db.close()
 
 @celery_app.task(bind=True)
 def sync_variable_products_wc_to_odoo(self):
@@ -340,6 +401,16 @@ def sync_variable_products_wc_to_odoo(self):
     wc = WooCommerceClient()
     odoo = OdooClient()
     db = SessionLocal()
+    
+    # Get sync run record
+    sync_run = db.query(SyncRun).filter_by(task_id=self.request.id).first()
+    start_time = datetime.utcnow()
+    
+    # Initialize counters
+    products_processed = 0
+    products_created = 0
+    products_skipped = 0
+    
     try:
         self.update_state(state='PROGRESS', meta={
             'current': 0,
@@ -384,6 +455,7 @@ def sync_variable_products_wc_to_odoo(self):
             )
             if existing_template:
                 logger.info(f"Product '{parent_name}' already exists in Odoo (ID: {existing_template[0]['id']}). Skipping.")
+                products_skipped += 1
                 continue
             
             wc_id = str(parent_product['id'])
@@ -512,10 +584,24 @@ def sync_variable_products_wc_to_odoo(self):
                         'active': True,
                         'is_storable': True
                     }
+                    # Handle price with validation
                     if variation.get('price') is not None:
-                        product_product_vals['list_price'] = float(variation['price'])
+                        try:
+                            price_value = variation.get('price', '0')
+                            if not price_value or price_value == '':
+                                price_value = '0'
+                            product_product_vals['list_price'] = float(price_value)
+                        except (ValueError, TypeError):
+                            logger.warning(f"Invalid price '{variation.get('price')}' for variant {variation['sku']}. Setting price to 0.")
+                            product_product_vals['list_price'] = 0.0
+                    
+                    # Handle stock quantity with validation
                     if variation.get('stock_quantity') is not None:
-                        product_product_vals['qty_available'] = float(variation['stock_quantity'])
+                        try:
+                            stock_qty = float(variation['stock_quantity'])
+                            product_product_vals['qty_available'] = stock_qty
+                        except (ValueError, TypeError):
+                            logger.warning(f"Invalid stock quantity '{variation.get('stock_quantity')}' for variant {variation['sku']}. Skipping quantity update.")
                     
                     # Get individual variant image
                     variant_image_base64 = None
@@ -548,17 +634,43 @@ def sync_variable_products_wc_to_odoo(self):
 
         db.commit()
         logger.info("Variable product sync completed successfully")
+        
+        # Update sync run record with final statistics
+        if sync_run:
+            end_time = datetime.utcnow()
+            sync_run.status = 'completed'
+            sync_run.completed_at = end_time
+            sync_run.duration = (end_time - start_time).total_seconds()
+            sync_run.products_processed = products_processed
+            sync_run.products_created = products_created
+            sync_run.products_skipped = products_skipped
+            db.commit()
+        
         return {
             'current': total_processed,
             'total': total_processed,
-            'status': 'Variable product sync completed successfully'
+            'status': 'Variable product sync completed successfully',
+            'products_processed': products_processed,
+            'products_created': products_created,
+            'products_skipped': products_skipped
         }
     except Exception as e:
         db.rollback()
         logger.error(f"Error during variable product sync: {str(e)}")
+        
+        # Update sync run record with error
+        if sync_run:
+            end_time = datetime.utcnow()
+            sync_run.status = 'failed'
+            sync_run.completed_at = end_time
+            sync_run.duration = (end_time - start_time).total_seconds()
+            sync_run.products_processed = products_processed
+            sync_run.products_created = products_created
+            sync_run.products_skipped = products_skipped
+            sync_run.error_message = str(e)
+            db.commit()
+        
         raise e
-    finally:
-        db.close()
 
 @celery_app.task(bind=True)
 def sync_customers_wc_to_odoo(self):
@@ -566,6 +678,16 @@ def sync_customers_wc_to_odoo(self):
     wc = WooCommerceClient()
     odoo = OdooClient()
     db = SessionLocal()
+
+    # Get sync run record
+    sync_run = db.query(SyncRun).filter_by(task_id=self.request.id).first()
+    start_time = datetime.utcnow()
+    
+    # Initialize counters
+    customers_processed = 0
+    customers_created = 0
+    customers_updated = 0
+    customers_skipped = 0
 
     try:
         self.update_state(state='PROGRESS', meta={
@@ -584,22 +706,23 @@ def sync_customers_wc_to_odoo(self):
         total_customers = 0
 
         def process_batch(batch):
-            nonlocal total_processed
+            nonlocal customers_processed, customers_created, customers_updated, customers_skipped
             for customer in batch:
                 try:
                     wc_id = str(customer['id'])
                     customer_email = customer.get('email')
-                    total_processed += 1
+                    customers_processed += 1
 
                     if not customer_email:
                         logger.warning(f"Skipping customer {wc_id} due to missing email address.")
+                        customers_skipped += 1
                         continue
 
                     # Update progress
                     self.update_state(state='PROGRESS', meta={
-                        'current': total_processed,
+                        'current': customers_processed,
                         'total': total_customers,
-                        'status': f'Processing customer {total_processed}/{total_customers}: {customer_email}'
+                        'status': f'Processing customer {customers_processed}/{total_customers}: {customer_email}'
                     })
 
                     # Check if customer already exists in Odoo by email
@@ -607,8 +730,10 @@ def sync_customers_wc_to_odoo(self):
 
                     if odoo_partner_id:
                         logger.info(f"Customer {customer_email} already exists in Odoo with ID {odoo_partner_id}. Skipping update for now.")
+                        customers_skipped += 1
                     else:
                         process_single_customer(customer, wc_id, customer_email, odoo, db)
+                        customers_created += 1
 
                 except Exception as e:
                     logger.error(f"Error processing customer {customer.get('id', 'unknown')}: {str(e)}")
@@ -702,15 +827,46 @@ def sync_customers_wc_to_odoo(self):
 
         db.commit()
         logger.info("Customer sync completed successfully")
+        
+        # Update sync run record with final statistics
+        if sync_run:
+            end_time = datetime.utcnow()
+            sync_run.status = 'completed'
+            sync_run.completed_at = end_time
+            sync_run.duration = (end_time - start_time).total_seconds()
+            sync_run.products_processed = customers_processed  # Using products_processed field for customers
+            sync_run.products_created = customers_created
+            sync_run.products_updated = customers_updated
+            sync_run.products_skipped = customers_skipped
+            db.commit()
+        
         return {
-            'current': total_customers,
-            'total': total_customers,
-            'status': 'Sync completed successfully'
+            'current': customers_processed,
+            'total': customers_processed,
+            'status': 'Sync completed successfully',
+            'customers_processed': customers_processed,
+            'customers_created': customers_created,
+            'customers_updated': customers_updated,
+            'customers_skipped': customers_skipped
         }
         
     except Exception as e:
         db.rollback()
         logger.error(f"Error during customer sync: {str(e)}")
+        
+        # Update sync run record with error
+        if sync_run:
+            end_time = datetime.utcnow()
+            sync_run.status = 'failed'
+            sync_run.completed_at = end_time
+            sync_run.duration = (end_time - start_time).total_seconds()
+            sync_run.products_processed = customers_processed  # Using products_processed field for customers
+            sync_run.products_created = customers_created
+            sync_run.products_updated = customers_updated
+            sync_run.products_skipped = customers_skipped
+            sync_run.error_message = str(e)
+            db.commit()
+        
         raise e
     finally:
         db.close() 

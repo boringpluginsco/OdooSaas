@@ -6,6 +6,7 @@ from .db import get_db, engine
 import logging
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import HTMLResponse, FileResponse
+from sqlalchemy import desc
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -118,4 +119,28 @@ async def sync_variable_products(db: Session = Depends(get_db)):
         }
     except Exception as e:
         logger.error(f"Error initiating variable product sync: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/sync/runs")
+async def get_sync_runs(db: Session = Depends(get_db)):
+    """
+    Return the last 50 sync runs for the dashboard history UI.
+    """
+    runs = db.query(models.SyncRun).order_by(desc(models.SyncRun.started_at)).limit(50).all()
+    return [
+        {
+            "id": run.id,
+            "task_id": run.task_id,
+            "sync_type": run.sync_type,
+            "status": run.status,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+            "duration": run.duration,
+            "products_processed": run.products_processed,
+            "products_created": run.products_created,
+            "products_updated": run.products_updated,
+            "products_skipped": run.products_skipped,
+            "error_message": run.error_message,
+        }
+        for run in runs
+    ] 

@@ -24,4 +24,20 @@ class SyncMapping(Base):
     wc_id = Column(String)        # WooCommerce ID
     odoo_id = Column(String)      # Odoo ID
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class SyncRun(Base):
+    __tablename__ = "sync_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String, unique=True, index=True)
+    sync_type = Column(String)  # e.g., 'simple', 'variable', 'customer'
+    status = Column(String)     # 'running', 'completed', 'failed'
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    duration = Column(Integer, nullable=True)
+    products_processed = Column(Integer, default=0)
+    products_created = Column(Integer, default=0)
+    products_updated = Column(Integer, default=0)
+    products_skipped = Column(Integer, default=0)
+    error_message = Column(String, nullable=True) 
