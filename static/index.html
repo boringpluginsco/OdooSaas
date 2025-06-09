@@ -8,9 +8,14 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body class="bg-gray-100 min-h-screen">
+    <!-- Sidebar Overlay -->
+    <div id="sidebar-overlay" class="fixed inset-0 bg-black bg-opacity-40 z-40 hidden transition-opacity duration-200"></div>
     <!-- Sidebar -->
-    <div id="sidebar" class="fixed top-0 left-0 h-full w-64 bg-gray-800 text-white transform -translate-x-full transition-transform duration-300 ease-in-out z-50">
-        <div class="p-4">
+    <div id="sidebar" class="fixed top-0 left-0 h-full w-64 bg-gray-800 text-white transition-transform duration-300 ease-in-out z-50 -translate-x-full">
+        <button id="sidebar-close" class="absolute top-4 right-4 text-gray-300 text-2xl focus:outline-none hidden">
+            <i class="fas fa-times"></i>
+        </button>
+        <div class="p-4 pt-8">
             <h2 class="text-xl font-bold mb-6">WooDoo Sync</h2>
             <nav>
                 <a href="#configuration" class="block py-2 px-4 hover:bg-gray-700 rounded-lg mb-2 transition-colors">
@@ -33,7 +38,7 @@
     </div>
 
     <!-- Sidebar Toggle -->
-    <button id="sidebar-toggle" class="fixed top-4 left-4 z-50 text-white text-2xl focus:outline-none">
+    <button id="sidebar-toggle" class="fixed top-4 left-4 z-50 text-gray-800 text-2xl focus:outline-none">
         <i class="fas fa-bars"></i>
     </button>
 
@@ -43,7 +48,7 @@
             <h1 class="text-3xl font-bold text-gray-800 mb-8">WooCommerce-Odoo Sync Dashboard</h1>
 
             <!-- Configuration Section -->
-            <section id="configuration" class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <section id="configuration" class="bg-white rounded-lg shadow-md p-6 mb-8 hidden">
                 <h2 class="text-2xl font-semibold text-gray-800 mb-4">
                     <i class="fas fa-cog mr-2"></i>Configuration
                 </h2>
@@ -81,24 +86,65 @@
                 </form>
             </section>
 
-            <!-- Products Section -->
-            <section id="products" class="bg-white rounded-lg shadow-md p-6 mb-8">
-                <h2 class="text-2xl font-semibold text-gray-800 mb-4">
-                    <i class="fas fa-box mr-2"></i>Products
-                </h2>
-                <p class="text-gray-600 mb-4">Sync products between WooCommerce and Odoo.</p>
-                <button id="syncProductsButton" onclick="triggerSync('/sync/products')" 
-                        class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
-                    <i class="fas fa-sync mr-2"></i>Trigger Product Sync (Woo → Odoo)
-                </button>
-                <button id="syncVariableProductsButton" onclick="triggerSync('/sync/variable-products')"
-                        class="bg-purple-500 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors ml-2">
-                    <i class="fas fa-random mr-2"></i>Sync Variable Products (Woo → Odoo)
-                </button>
-                <div id="productStatus" class="mt-4 p-4 rounded-lg bg-gray-50 text-gray-700">
-                    Click the button to start the product sync.
-                </div>
-            </section>
+            <!-- Products & Sync History Section (grouped) -->
+            <div id="products-page" class="hidden">
+                <section id="products" class="bg-white rounded-lg shadow-md p-6 mb-8">
+                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">
+                        <i class="fas fa-box mr-2"></i>Products
+                    </h2>
+                    <p class="text-gray-600 mb-4">Sync products between WooCommerce and Odoo.</p>
+                    <button id="syncProductsButton" onclick="triggerSync('/sync/products')" 
+                            class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
+                        <i class="fas fa-sync mr-2"></i>Trigger Product Sync (Woo → Odoo)
+                    </button>
+                    <button id="syncVariableProductsButton" onclick="triggerSync('/sync/variable-products')"
+                            class="bg-purple-500 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors ml-2">
+                        <i class="fas fa-random mr-2"></i>Sync Variable Products (Woo → Odoo)
+                    </button>
+                    <div id="productStatus" class="mt-4 p-4 rounded-lg bg-gray-50 text-gray-700">
+                        Click the button to start the product sync.
+                    </div>
+                </section>
+                <section id="sync-history" class="bg-white rounded-lg shadow-md p-6 mb-8">
+                    <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
+                        <i class="fas fa-history mr-2"></i>Sync History
+                        <button onclick="loadSyncHistory()" class="ml-auto bg-blue-500 hover:bg-blue-600 text-white font-semibold py-1 px-3 rounded-lg text-sm flex items-center">
+                            <i class="fas fa-sync-alt mr-1"></i>Refresh
+                        </button>
+                        <button id="toggleSyncHistoryView" onclick="toggleSyncHistoryView()" class="ml-2 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-1 px-3 rounded-lg text-sm flex items-center">
+                            <i class="fas fa-table mr-1"></i>Table View
+                        </button>
+                    </h2>
+                    <div id="syncHistoryContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <!-- Sync run history will be loaded here -->
+                    </div>
+                </section>
+            </div>
+            <!-- Orders & Order Sync Log Section (grouped) -->
+            <div id="orders-page" class="hidden">
+                <section id="invoices" class="bg-white rounded-lg shadow-md p-6 mb-8">
+                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">
+                        <i class="fas fa-file-invoice mr-2"></i>Invoices
+                    </h2>
+                    <p class="text-gray-600">Sync invoice data between WooCommerce and Odoo.</p>
+                    <button id="manualExportInvoicesButton" onclick="showManualInvoiceExport(event)"
+                            class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition-colors mt-4">
+                        <i class="fas fa-file-export mr-2"></i>Manual Export Invoices
+                    </button>
+                    <div id="manualInvoiceExportTable" class="mt-6 hidden"></div>
+                </section>
+                <section id="order-sync-log" class="bg-white rounded-lg shadow-md p-6 mb-8">
+                    <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
+                        <i class="fas fa-list-alt mr-2"></i>Order Sync Log
+                        <button onclick="loadOrderSyncLog()" class="ml-auto bg-blue-500 hover:bg-blue-600 text-white font-semibold py-1 px-3 rounded-lg text-sm flex items-center">
+                            <i class="fas fa-sync-alt mr-1"></i>Refresh
+                        </button>
+                    </h2>
+                    <div id="orderSyncLogContainer">
+                        <!-- Order sync log table will be loaded here -->
+                    </div>
+                </section>
+            </div>
 
             <!-- Customers Section -->
             <section id="customers" class="bg-white rounded-lg shadow-md p-6 mb-8">
@@ -135,69 +181,42 @@
                     </div>
                 </div>
             </section>
-
-            <!-- Invoices Section -->
-            <section id="invoices" class="bg-white rounded-lg shadow-md p-6 mb-8">
-                <h2 class="text-2xl font-semibold text-gray-800 mb-4">
-                    <i class="fas fa-file-invoice mr-2"></i>Invoices
-                </h2>
-                <p class="text-gray-600">Sync invoice data between WooCommerce and Odoo.</p>
-                <button id="manualExportInvoicesButton" onclick="showManualInvoiceExport(event)"
-                        class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition-colors mt-4">
-                    <i class="fas fa-file-export mr-2"></i>Manual Export Invoices
-                </button>
-                <div id="manualInvoiceExportTable" class="mt-6 hidden"></div>
-            </section>
-
-            <!-- Sync History Section -->
-            <section id="sync-history" class="bg-white rounded-lg shadow-md p-6 mb-8">
-                <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
-                    <i class="fas fa-history mr-2"></i>Sync History
-                    <button onclick="loadSyncHistory()" class="ml-auto bg-blue-500 hover:bg-blue-600 text-white font-semibold py-1 px-3 rounded-lg text-sm flex items-center">
-                        <i class="fas fa-sync-alt mr-1"></i>Refresh
-                    </button>
-                    <button id="toggleSyncHistoryView" onclick="toggleSyncHistoryView()" class="ml-2 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-1 px-3 rounded-lg text-sm flex items-center">
-                        <i class="fas fa-table mr-1"></i>Table View
-                    </button>
-                </h2>
-                <div id="syncHistoryContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <!-- Sync run history will be loaded here -->
-                </div>
-            </section>
         </div>
     </div>
 
     <script>
-        function toggleSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const mainContent = document.getElementById('main-content');
-            const sidebarToggle = document.getElementById('sidebar-toggle');
-            const icon = sidebarToggle.querySelector('i');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggle = document.getElementById('sidebar-toggle');
+        const sidebarClose = document.getElementById('sidebar-close');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+        sidebarToggle.addEventListener('click', () => {
+            sidebar.classList.remove('-translate-x-full');
+            sidebarClose.classList.remove('hidden');
+            sidebarToggle.classList.add('hidden');
+            sidebarOverlay.classList.remove('hidden');
+        });
+        sidebarClose.addEventListener('click', () => {
+            sidebar.classList.add('-translate-x-full');
+            sidebarClose.classList.add('hidden');
+            sidebarToggle.classList.remove('hidden');
+            sidebarOverlay.classList.add('hidden');
+        });
+        sidebarOverlay.addEventListener('click', () => {
+            sidebar.classList.add('-translate-x-full');
+            sidebarClose.classList.add('hidden');
+            sidebarToggle.classList.remove('hidden');
+            sidebarOverlay.classList.add('hidden');
+        });
 
-            sidebar.classList.toggle('-translate-x-full');
-            mainContent.classList.toggle('ml-64');
-            
-            if (sidebar.classList.contains('-translate-x-full')) {
-                icon.classList.remove('fa-times');
-                icon.classList.add('fa-bars');
-            } else {
-                icon.classList.remove('fa-bars');
-                icon.classList.add('fa-times');
-            }
-        }
-
-        document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
-
-        document.querySelectorAll('#sidebar a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
+        // Sidebar navigation fix: always trigger showSectionByHash on click
+        Array.from(document.querySelectorAll('#sidebar a[href^="#"]')).forEach(link => {
+            link.addEventListener('click', function(e) {
                 e.preventDefault();
-                document.querySelector(this.getAttribute('href')).scrollIntoView({
-                    behavior: 'smooth'
-                });
-                // Close sidebar on mobile after clicking a link
-                if (window.innerWidth < 768) {
-                    toggleSidebar();
+                const hash = this.getAttribute('href');
+                if (window.location.hash !== hash) {
+                    window.location.hash = hash;
                 }
+                showSectionByHash();
             });
         });
 
@@ -419,9 +438,33 @@
                 // Optionally show an error
             }
         }
+        function showSectionByHash() {
+            const hash = window.location.hash || '#products';
+            // Hide all grouped and individual sections
+            ['products-page', 'orders-page', 'configuration', 'customers'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            });
+            // Show the correct group/page
+            if (hash === '#configuration') {
+                document.getElementById('configuration').classList.remove('hidden');
+            } else if (hash === '#products' || hash === '#sync-history') {
+                document.getElementById('products-page').classList.remove('hidden');
+            } else if (hash === '#invoices' || hash === '#order-sync-log') {
+                document.getElementById('orders-page').classList.remove('hidden');
+            } else if (hash === '#customers') {
+                document.getElementById('customers').classList.remove('hidden');
+            } else {
+                // Default to products page
+                document.getElementById('products-page').classList.remove('hidden');
+            }
+        }
+        window.addEventListener('hashchange', showSectionByHash);
         document.addEventListener('DOMContentLoaded', () => {
             loadConfig();
             loadSyncHistory();
+            loadOrderSyncLog();
+            showSectionByHash();
         });
 
         function showManualCustomerSync(event) {
@@ -739,6 +782,48 @@
             document.getElementById('syncedOrderModal').classList.add('hidden');
             syncedOrderModalOrderId = null;
         };
+        async function loadOrderSyncLog() {
+            const container = document.getElementById('orderSyncLogContainer');
+            container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-2xl text-blue-500"></i> Loading order sync log...</div>';
+            try {
+                const response = await fetch('/order-sync-logs');
+                const logs = await response.json();
+                if (!Array.isArray(logs) || logs.length === 0) {
+                    container.innerHTML = '<div class="text-center text-gray-500">No order sync logs found.</div>';
+                    return;
+                }
+                container.innerHTML = `
+                    <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 text-sm bg-white rounded shadow">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Woo Order ID</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Odoo Order ID</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Status</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Action</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Timestamp</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700">Error</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${logs.map(log => `
+                                <tr>
+                                    <td class="px-3 py-2">${log.woo_order_id || ''}</td>
+                                    <td class="px-3 py-2">${log.odoo_order_id || ''}</td>
+                                    <td class="px-3 py-2">${log.status === 'success' ? '<span class=\'text-green-600\'><i class=\'fas fa-check-circle\'></i> Success</span>' : '<span class=\'text-red-600\'><i class=\'fas fa-times-circle\'></i> Failed</span>'}</td>
+                                    <td class="px-3 py-2">${log.action || ''}</td>
+                                    <td class="px-3 py-2">${log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}</td>
+                                    <td class="px-3 py-2 text-xs">${log.error_message ? `<span class='bg-red-100 text-red-800 rounded px-2 py-1 flex items-center'><i class='fas fa-exclamation-triangle mr-1'></i>${log.error_message}</span>` : ''}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    </div>
+                `;
+            } catch (e) {
+                container.innerHTML = '<div class="text-center text-red-600">Failed to load order sync log.</div>';
+            }
+        }
     </script>
 </body>
 </html>

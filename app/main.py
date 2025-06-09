@@ -505,4 +505,22 @@ async def sync_single_order(order_id: int, overwrite: bool = Query(False), force
         }
     except Exception as e:
         logger.error(f"Error syncing order {order_id}: {str(e)}", exc_info=True)
-        return {"status": "error", "message": str(e)} 
+        return {"status": "error", "message": str(e)}
+
+@app.get("/order-sync-logs")
+async def get_order_sync_logs(db: Session = Depends(get_db)):
+    logs = db.query(SyncLog).filter(SyncLog.entity_type == 'order').order_by(SyncLog.id.desc()).limit(100).all()
+    # Try to get Odoo order ID from SyncMapping if available
+    mappings = {m.wc_id: m.odoo_id for m in db.query(SyncMapping).filter(SyncMapping.entity_type == 'order').all()}
+    return [
+        {
+            "id": log.id,
+            "woo_order_id": log.entity_id,
+            "odoo_order_id": mappings.get(log.entity_id),
+            "status": log.status,
+            "action": log.action,
+            "timestamp": log.created_at.isoformat() if hasattr(log, 'created_at') and log.created_at else None,
+            "error_message": log.error_message,
+        }
+        for log in logs
+    ] 
